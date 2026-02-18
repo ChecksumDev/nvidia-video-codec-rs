@@ -17,5 +17,8 @@ Thumbs.db
 # Local nv-codec-headers checkouts (used during development/generation)
 nv-codec-headers*/
 
+# CI artifacts (downloaded during generate-bindings workflow)
+artifacts/
+
 # Environment
 .env
