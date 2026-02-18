@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target/
+**/target/
+
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local nv-codec-headers checkouts (used during development/generation)
+nv-codec-headers*/
+
+# Environment
+.env

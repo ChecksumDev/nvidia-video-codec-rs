@@ -1,0 +1,176 @@
+name: Generate Bindings
+
+on:
+  workflow_dispatch:
+    inputs:
+      tags:
+        description: >
+          JSON array of {"feature":"vX_Y","tag":"nX.Y.Z.W"} entries to generate.
+          Leave empty to auto-detect all missing versions.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tags:
+        description: "JSON array of tags to process"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# Major.minor SDK versions we track (features in Cargo.toml).
+# The latest patch tag for each is resolved dynamically from upstream.
+env:
+  TRACKED_VERSIONS: "8.0 8.1 8.2 9.0 9.1 10.0 11.0 11.1 12.0 12.1 12.2 13.0"
+
+jobs:
+  detect-tags:
+    name: Detect tags to generate
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      has_work: ${{ steps.detect.outputs.has_work }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detect missing bindings
+        id: detect
+        run: |
+          # If tags were explicitly provided, use them directly
+          if [ -n "${{ inputs.tags }}" ]; then
+            echo "Using provided tags: ${{ inputs.tags }}"
+            echo "matrix=${{ inputs.tags }}" >> "$GITHUB_OUTPUT"
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Fetch all tags from upstream nv-codec-headers
+          echo "Fetching tags from FFmpeg/nv-codec-headers..."
+          ALL_TAGS=$(git ls-remote --tags https://github.com/FFmpeg/nv-codec-headers.git \
+            | awk '{print $2}' \
+            | sed 's|refs/tags/||' \
+            | grep '^n[0-9]' \
+            | sort -V)
+
+          # For each tracked major.minor, find the latest patch tag
+          TAGS='[]'
+          for VERSION in $TRACKED_VERSIONS; do
+            FEATURE="v${VERSION//./_}"
+
+            # Find the latest tag matching this major.minor (e.g. n13.0.*)
+            LATEST_TAG=$(echo "$ALL_TAGS" | grep "^n${VERSION}\." | tail -1)
+            if [ -z "$LATEST_TAG" ]; then
+              echo "::warning::No upstream tag found for version ${VERSION}"
+              continue
+            fi
+
+            echo "Version ${VERSION}: latest tag is ${LATEST_TAG}"
+
+            # Check if we already have bindings for this version
+            BINDINGS_DIR="nvidia-video-codec-sys/src/bindings/${FEATURE}"
+            TAG_FILE="${BINDINGS_DIR}/.tag"
+
+            if [ -f "$TAG_FILE" ] && [ "$(cat "$TAG_FILE")" = "$LATEST_TAG" ]; then
+              echo "  -> Bindings are up to date (${LATEST_TAG})"
+            else
+              if [ -f "$TAG_FILE" ]; then
+                echo "  -> Bindings exist but are outdated (have $(cat "$TAG_FILE"), want ${LATEST_TAG})"
+              else
+                echo "  -> No bindings found"
+              fi
+              TAGS=$(echo "$TAGS" | jq -c --arg f "$FEATURE" --arg t "$LATEST_TAG" \
+                '. + [{"feature": $f, "tag": $t}]')
+            fi
+          done
+
+          if [ "$TAGS" = "[]" ]; then
+            echo "All bindings are up to date."
+            echo "has_work=false" >> "$GITHUB_OUTPUT"
+            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+          else
+            echo "Tags to generate: $TAGS"
+            echo "has_work=true" >> "$GITHUB_OUTPUT"
+            echo "matrix=$TAGS" >> "$GITHUB_OUTPUT"
+          fi
+
+  generate:
+    name: "Generate ${{ matrix.entry.feature }}"
+    needs: detect-tags
+    if: needs.detect-tags.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        entry: ${{ fromJson(needs.detect-tags.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install LLVM/Clang
+        run: |
+          wget -qO- https://apt.llvm.org/llvm-snapshot.gpg.key | sudo apt-key add -
+          sudo add-apt-repository "deb http://apt.llvm.org/$(lsb_release -cs)/ llvm-toolchain-$(lsb_release -cs)-16 main"
+          sudo apt-get update
+          sudo apt-get install -y clang-16 libclang-16-dev
+          echo "LLVM_CONFIG_PATH=/usr/lib/llvm-16/bin/llvm-config" >> "$GITHUB_ENV"
+          echo "LIBCLANG_PATH=/usr/lib/llvm-16/lib" >> "$GITHUB_ENV"
+
+      - name: Install bindgen-cli
+        uses: taiki-e/install-action@v2
+        with:
+          tool: bindgen-cli
+
+      - name: Generate bindings for ${{ matrix.entry.feature }}
+        run: |
+          chmod +x nvidia-video-codec-sys/generate/generate.sh
+          nvidia-video-codec-sys/generate/generate.sh \
+            "${{ matrix.entry.tag }}" \
+            "nvidia-video-codec-sys/src/bindings/${{ matrix.entry.feature }}"
+
+          # Write a .tag file to track which upstream tag was used
+          echo "${{ matrix.entry.tag }}" > \
+            "nvidia-video-codec-sys/src/bindings/${{ matrix.entry.feature }}/.tag"
+
+      - name: Upload bindings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.entry.feature }}
+          path: nvidia-video-codec-sys/src/bindings/${{ matrix.entry.feature }}/
+          retention-days: 1
+
+  create-pr:
+    name: Create Pull Request
+    needs: [detect-tags, generate]
+    if: needs.detect-tags.outputs.has_work == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binding artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: bindings-*
+
+      - name: Move bindings into place
+        run: |
+          for dir in artifacts/bindings-*/; do
+            feature=$(basename "$dir" | sed 's/^bindings-//')
+            dest="nvidia-video-codec-sys/src/bindings/${feature}"
+            mkdir -p "$dest"
+            cp -v "$dir"/* "$dest/"
+          done
+
+      - name: Create Pull Request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore: generate FFI bindings"
+          title: "chore: update pre-generated FFI bindings"
+          body: |
+            Automated PR to add/update pre-generated FFI bindings.
+
+            Generated from the latest tags in [FFmpeg/nv-codec-headers](https://github.com/FFmpeg/nv-codec-headers).
+          branch: chore/update-bindings
+          delete-branch: true

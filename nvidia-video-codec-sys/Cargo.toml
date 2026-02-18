@@ -1,0 +1,29 @@
+[package]
+name = "nvidia-video-codec-sys"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.70"
+description = "FFI bindings to NVIDIA Video Codec SDK (NVENC/NVDEC/CUDA) with dynamic loading support"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/checksumdev/nvidia-video-codec-rs"
+keywords = ["nvidia", "nvenc", "nvdec", "cuda", "video"]
+categories = ["external-ffi-bindings", "multimedia::video"]
+exclude = ["generate/"]
+
+[features]
+default = ["v13_0"]
+v8_0 = []
+v8_1 = []
+v8_2 = []
+v9_0 = []
+v9_1 = []
+v10_0 = []
+v11_0 = []
+v11_1 = []
+v12_0 = []
+v12_1 = []
+v12_2 = []
+v13_0 = []
+
+[dependencies]
+libloading = "0.9.0"

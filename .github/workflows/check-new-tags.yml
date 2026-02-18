@@ -1,0 +1,92 @@
+name: Check for New SDK Tags
+
+on:
+  schedule:
+    # Every Monday at 08:00 UTC
+    - cron: "0 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: read
+
+env:
+  TRACKED_VERSIONS: "8.0 8.1 8.2 9.0 9.1 10.0 11.0 11.1 12.0 12.1 12.2 13.0"
+
+jobs:
+  check:
+    name: Check for new nv-codec-headers tags
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for updates
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching tags from FFmpeg/nv-codec-headers..."
+          ALL_TAGS=$(git ls-remote --tags https://github.com/FFmpeg/nv-codec-headers.git \
+            | awk '{print $2}' \
+            | sed 's|refs/tags/||' \
+            | grep '^n[0-9]' \
+            | sort -V)
+
+          # Check for new major.minor versions we don't track yet
+          ALL_MAJOR_MINORS=$(echo "$ALL_TAGS" \
+            | sed -n 's/^n\([0-9]*\.[0-9]*\)\..*/\1/p' \
+            | sort -Vu)
+
+          echo "--- New SDK versions not yet tracked ---"
+          NEW_FOUND=false
+          while IFS= read -r MM; do
+            [ -z "$MM" ] && continue
+            FEATURE="v${MM//./_}"
+            if ! echo "$TRACKED_VERSIONS" | grep -qw "$MM"; then
+              LATEST=$(echo "$ALL_TAGS" | grep "^n${MM}\." | tail -1)
+              echo "::warning::Untracked SDK version ${MM} (latest tag: ${LATEST}). Add to TRACKED_VERSIONS."
+              NEW_FOUND=true
+            fi
+          done <<< "$ALL_MAJOR_MINORS"
+
+          if [ "$NEW_FOUND" = false ]; then
+            echo "No new untracked SDK versions found."
+          fi
+
+          # Check which tracked versions need regeneration
+          echo ""
+          echo "--- Checking tracked versions for updates ---"
+          MISSING='[]'
+          for VERSION in $TRACKED_VERSIONS; do
+            FEATURE="v${VERSION//./_}"
+            LATEST_TAG=$(echo "$ALL_TAGS" | grep "^n${VERSION}\." | tail -1)
+            [ -z "$LATEST_TAG" ] && continue
+
+            TAG_FILE="nvidia-video-codec-sys/src/bindings/${FEATURE}/.tag"
+
+            if [ -f "$TAG_FILE" ] && [ "$(cat "$TAG_FILE")" = "$LATEST_TAG" ]; then
+              echo "${VERSION}: up to date (${LATEST_TAG})"
+            else
+              CURRENT="(none)"
+              [ -f "$TAG_FILE" ] && CURRENT="$(cat "$TAG_FILE")"
+              echo "${VERSION}: needs update (have ${CURRENT}, want ${LATEST_TAG})"
+              MISSING=$(echo "$MISSING" | jq -c --arg f "$FEATURE" --arg t "$LATEST_TAG" \
+                '. + [{"feature": $f, "tag": $t}]')
+            fi
+          done
+
+          if [ "$MISSING" != "[]" ]; then
+            echo "has_missing=true" >> "$GITHUB_OUTPUT"
+            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_missing=false" >> "$GITHUB_OUTPUT"
+            echo "All bindings are up to date."
+          fi
+
+      - name: Trigger binding generation
+        if: steps.check.outputs.has_missing == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run generate-bindings.yml \
+            -f tags='${{ steps.check.outputs.missing }}'
