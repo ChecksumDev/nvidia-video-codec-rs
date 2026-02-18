@@ -50,10 +50,6 @@ bindgen "${WRAPPER_H}" \
     --with-derive-eq \
     --blocklist-item "FFNV_.*" \
     --blocklist-item "ffnv_.*" \
-    --raw-line "#![allow(non_upper_case_globals)]" \
-    --raw-line "#![allow(non_camel_case_types)]" \
-    --raw-line "#![allow(non_snake_case)]" \
-    --raw-line "#![allow(dead_code)]" \
     -- \
     -I "${INCLUDE_DIR}" \
     > "${OUTPUT_DIR}/bindings.rs"
