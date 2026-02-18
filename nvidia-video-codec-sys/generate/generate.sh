@@ -49,7 +49,6 @@ bindgen "${WRAPPER_H}" \
     --with-derive-hash \
     --with-derive-eq \
     --blocklist-item "FFNV_.*" \
-    --blocklist-item "ffnv_.*" \
     -- \
     -I "${INCLUDE_DIR}" \
     > "${OUTPUT_DIR}/bindings.rs"
