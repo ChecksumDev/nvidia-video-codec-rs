@@ -37,11 +37,17 @@ jobs:
 
       - name: Detect missing bindings
         id: detect
+        env:
+          INPUT_TAGS: ${{ inputs.tags }}
         run: |
           # If tags were explicitly provided, use them directly
-          if [ -n "${{ inputs.tags }}" ]; then
-            echo "Using provided tags: ${{ inputs.tags }}"
-            echo "matrix=${{ inputs.tags }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_TAGS" ]; then
+            echo "Using provided tags: $INPUT_TAGS"
+            {
+              echo "matrix<<MATRIX_EOF"
+              echo "$INPUT_TAGS"
+              echo "MATRIX_EOF"
+            } >> "$GITHUB_OUTPUT"
             echo "has_work=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -88,11 +94,19 @@ jobs:
           if [ "$TAGS" = "[]" ]; then
             echo "All bindings are up to date."
             echo "has_work=false" >> "$GITHUB_OUTPUT"
-            echo "matrix=[]" >> "$GITHUB_OUTPUT"
+            {
+              echo "matrix<<MATRIX_EOF"
+              echo "[]"
+              echo "MATRIX_EOF"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "Tags to generate: $TAGS"
             echo "has_work=true" >> "$GITHUB_OUTPUT"
-            echo "matrix=$TAGS" >> "$GITHUB_OUTPUT"
+            {
+              echo "matrix<<MATRIX_EOF"
+              echo "$TAGS"
+              echo "MATRIX_EOF"
+            } >> "$GITHUB_OUTPUT"
           fi
 
   generate:

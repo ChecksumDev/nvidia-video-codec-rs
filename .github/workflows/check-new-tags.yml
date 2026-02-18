@@ -77,7 +77,11 @@ jobs:
 
           if [ "$MISSING" != "[]" ]; then
             echo "has_missing=true" >> "$GITHUB_OUTPUT"
-            echo "missing=$MISSING" >> "$GITHUB_OUTPUT"
+            {
+              echo "missing<<MISSING_EOF"
+              echo "$MISSING"
+              echo "MISSING_EOF"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "has_missing=false" >> "$GITHUB_OUTPUT"
             echo "All bindings are up to date."
@@ -87,6 +91,7 @@ jobs:
         if: steps.check.outputs.has_missing == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          MISSING_TAGS: ${{ steps.check.outputs.missing }}
         run: |
           gh workflow run generate-bindings.yml \
-            -f tags='${{ steps.check.outputs.missing }}'
+            -f tags="$MISSING_TAGS"
