@@ -29,8 +29,9 @@ jobs:
           ALL_TAGS=$(git ls-remote --tags https://github.com/FFmpeg/nv-codec-headers.git \
             | awk '{print $2}' \
             | sed 's|refs/tags/||' \
+            | sed 's|\^{}$||' \
             | grep '^n[0-9]' \
-            | sort -V)
+            | sort -Vu)
 
           # Check for new major.minor versions we don't track yet
           ALL_MAJOR_MINORS=$(echo "$ALL_TAGS" \
