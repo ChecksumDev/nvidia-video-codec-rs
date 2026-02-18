@@ -879,6 +879,8 @@ pub struct CUDA_RESOURCE_VIEW_DESC_st {
 pub type CUDA_RESOURCE_VIEW_DESC = CUDA_RESOURCE_VIEW_DESC_st;
 pub type GLenum = ::std::os::raw::c_uint;
 pub type GLuint = ::std::os::raw::c_uint;
+pub type ffnv_EGLint = i32;
+pub type ffnv_EGLStreamKHR = *mut ::std::os::raw::c_void;
 #[repr(u32)]
 #[non_exhaustive]
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq)]
